@@ -1,236 +1,287 @@
+import pathlib
 import pygame
-from math import sqrt
-from random import randint
+import random
 import time
+from math import sqrt
 
 
 pygame.init()
-
 
 HEIGHT = 600
 WIDTH = 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 clock = pygame.time.Clock()
-font = pygame.font.SysFont('Ariel Black', 50)
-end_font = pygame.font.SysFont('Ariel White', 90)
-endX, endY = 240, 250
+font = pygame.font.SysFont('Arial Black', 36)  # Smaller font size for gameplay
+end_font = pygame.font.SysFont('Arial Black', 60)  # Smaller font size for game over screen
 
-# Player variables
-mouseX = 0
-mouseY = 0
-mouseR = 40
-
-# Load background images
-background = pygame.image.load('images/sky.jpg')
-background = pygame.transform.scale(background, (WIDTH, HEIGHT))
-
-end_background = pygame.image.load('images/sky.jpg')
-end_background = pygame.transform.scale(end_background, (WIDTH, HEIGHT))
-
+# ---------------------------------------
 # Colors
+# ---------------------------------------
+
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
 
 # ---------------------------------------
 # picture properties
 # ---------------------------------------
 
-# Balloon images
-balloon_images = [
-    'images/blue.png',
-    'images/bronze.png',
-    'images/gold.png',
-    'images/green.png',
-    'images/hot_pink.png',
-    'images/orange.png',
-]
+CWD = pathlib.Path(__file__).parent
 
-# Load and resize balloon images
-balloon_images = [pygame.image.load(img) for img in balloon_images]
+# Balloon images
+balloon_image_files = [
+    CWD / 'images/blue.png',
+    CWD / 'images/bronze.png',
+    CWD / 'images/gold.png',
+    CWD / 'images/green.png',
+    CWD / 'images/hot_pink.png',
+    CWD / 'images/orange.png',
+]
+balloon_images = [pygame.image.load(img) for img in balloon_image_files]
 
 # Load and scale bomb image
-bomb_image = pygame.transform.scale(pygame.image.load('images/evil_balloon.png'), (60, 120))
+bomb_image_file_name = pygame.image.load(CWD / 'images/evil_balloon.png')
+bomb_image = pygame.transform.scale(bomb_image_file_name, (60, 120))
+
+# Load background images
+background_file_name = pygame.image.load(CWD / 'images/sky.jpg')
+background = pygame.transform.scale(background_file_name, (WIDTH, HEIGHT))
+end_background_file_name = pygame.image.load(CWD / 'images/sky.jpg')
+end_background = pygame.transform.scale(end_background_file_name, (WIDTH, HEIGHT))
 
 
-# -------------------------------------------------
-# function that calculates distance between
-# two points in coordinate system
-# -------------------------------------------------
+# ---------------------------------------
+# functions
+# ---------------------------------------
+
+
 def distance(x1, y1, x2, y2):
     return sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 
 
-# -------------------------------------------------
-# function that redraws all objects
-# -------------------------------------------------
-def redraw():
-    screen.blit(background, (0, 0))
-    for i in range(len(balloons)):
-        if balloons_visible[i]:
-            if balloon_shapes[i] == -1:
-                # Adjust to center bomb
-                screen.blit(bomb_image, (balloon_x[i] - 30, balloon_y[i] - 60))
+# ---------------------------------------
+# game components
+# ---------------------------------------
+
+
+class Balloon:
+    """
+    Represents a balloon in the game.
+
+    Attributes:
+        x (int): The x-coordinate of the balloon.
+        y (int): The y-coordinate of the balloon.
+        image (Surface): The image of the balloon.
+        speed (int): The speed at which the balloon moves upwards.
+        size (int): The size of the balloon.
+        is_bomb (bool): Whether the balloon is a bomb.
+    """
+
+    def __init__(self, x, y, image, speed, size, is_bomb=False):
+        self.x = x
+        self.y = y
+        self.image = pygame.transform.scale(image, (size, size * 2))
+        self.speed = speed
+        self.visible = True
+        self.is_bomb = is_bomb
+        self.size = size
+
+    def __str__(self):
+        return 'Balloon at ', {self.x}, {self.y}
+
+    def draw_balloon(self):
+        if self.visible:
+            screen.blit(self.image, (self.x, self.y))
+
+    def fly_away(self):
+        if self.visible:
+            self.y -= self.speed
+            if self.y < -self.size * 2:
+                self.visible = False
+                return not self.is_bomb
+        return False
+
+    def pop(self, mouse_x, mouse_y):
+        if self.visible and distance(self.x + self.size // 2, self.y + self.size, mouse_x, mouse_y) < self.size:
+            self.visible = False
+            return True, not self.is_bomb
+        return False, False
+
+
+class Bomb(Balloon):
+    """
+    Represents a bomb balloon in the game, inheriting from Balloon.
+
+    """
+
+    def __init__(self, x, y, image, speed, size, is_bomb=True):
+        super().__init__(x, y, image, speed, size, is_bomb)
+
+    def pop(self, mouse_x, mouse_y):
+        """
+        Override pop method for bomb behavior.
+        Returns True to end the game if popped.
+        """
+        if self.visible and distance(self.x + self.size // 2, self.y + self.size, mouse_x, mouse_y) < self.size:
+            self.visible = False
+            return True
+        return False
+
+
+class Game:
+    """
+    Manages the game state and logic.
+
+    Attributes:
+        balloons (list): List of Balloon objects in the game.
+        score (int): Player's score.
+        missed (int): Number of balloons that flew away.
+        num_balloons (int): Total number of balloons generated in the game.
+    """
+
+    def __init__(self):
+        self.balloons = []
+        self.score = 0
+        self.missed = 0
+        self.num_balloons = random.randint(20, 40)
+        self.generate_balloons()
+
+    def generate_balloons(self):
+        for i in range(self.num_balloons):
+            image = random.choice(balloon_images)
+            x = random.randint(0, WIDTH - 60)
+            y = random.randint(HEIGHT // 2, HEIGHT)
+            speed = random.randint(1, 5)
+            size = random.randint(30, 60)
+            self.balloons.append(Balloon(x, y, image, speed, size))
+        # Add a bomb balloon
+        x = random.randint(0, WIDTH - 60)
+        y = random.randint(HEIGHT // 2, HEIGHT)
+        speed = random.randint(1, 5)
+        size = random.randint(30, 60)
+        self.balloons.append(Bomb(x, y, bomb_image, speed, size, is_bomb=True))
+
+    def draw_all(self):
+        for balloon in self.balloons:
+            balloon.draw_balloon()
+        score_text = font.render('Score: ' + str(self.score), True, BLACK)
+        missed_text = font.render('Missed: ' + str(self.missed), True, BLACK)
+        screen.blit(score_text, (10, 10))
+        screen.blit(missed_text, (10, 60))
+
+    def move_all(self):
+        for balloon in self.balloons:
+            if balloon.fly_away():
+                self.missed += 1
+
+    def pop_all(self, mouse_x, mouse_y):
+        for balloon in self.balloons:
+            if isinstance(balloon, Bomb):
+                popped = balloon.pop(mouse_x, mouse_y)
+                if popped:
+                    return False
             else:
-                resizedBalloon = pygame.transform.scale(
-                    balloon_images[balloon_shapes[i]],
-                    (balloon_r[i] * 2, balloon_r[i] * 3),
-                )
-
-                # Adjust to center balloon
-                screen.blit(
-                    resizedBalloon,
-                    (balloon_x[i] - balloon_r[i], balloon_y[i] - balloon_r[i] * 1.5),
-                )
-
-    # Display score and elapsed time
-    score_text = font.render('Score: ' + str(score), True, BLACK)
-    screen.blit(score_text, (10, 5))
-    elapsed_time = int(time.time() - start_time)
-    time_text = font.render('Time: ' + str(elapsed_time), True, BLACK)
-    screen.blit(time_text, (10, 60))
-
-    pygame.display.update()
+                popped, is_safe = balloon.pop(mouse_x, mouse_y)
+                if popped:
+                    if balloon.is_bomb:
+                        return False
+                    else:
+                        self.score += 1
+        return True
 
 
-# Function to display the game over screen
-def game_over():
-    final_time = int(time.time() - start_time)
-    screen.blit(end_background, (0, 0))
-    end_text = end_font.render('GAME OVER', True, BLACK)
-    screen.blit(end_text, (225, 170))
-    scoreText = font.render('Score: ' + str(score), True, BLACK)
-    screen.blit(scoreText, (333, 250))
-    timeText = font.render('Final Time: ' + str(final_time), True, BLACK)
-    screen.blit(timeText, (320, 465))
-    missedText = font.render('Missed balloons: ' + str(missed_balloons), True, BLACK)
-    screen.blit(missedText, (260, 410))
+class GameLoop:
+    """
+    Manages the main game loop and handles events.
 
-    # Draw play again button
-    pygame.draw.rect(screen, GREEN, (200, 300, 200, 100))
-    playText = font.render('REPLAY', True, BLACK)
-    screen.blit(playText, (230, 330))
+    Attributes:
+        game (Game): The current game instance.
+        start_time (float): The time when the game started.
+        running (bool): Whether the game loop is running.
+        game_over (bool): Whether the game is over.
+        final_time (int): Final time when the game ends.
+    """
 
-    # Draw quit button
-    pygame.draw.rect(screen, RED, (450, 300, 200, 100))
-    quitText = font.render('QUIT', True, BLACK)
-    screen.blit(quitText, (500, 330))
+    def __init__(self):
+        self.game = Game()
+        self.start_time = time.time()
+        self.running = True
+        self.game_over = False
+        self.final_time = 0
 
-    pygame.display.update()
-
-
-# Function to generate balloons
-def gen_balloons():
-    numBalloons = randint(20, 30)
-    for i in range(numBalloons):
-        balloons.append(randint(0, WIDTH))
-        balloons_visible.append(True)
-        balloon_x.append(randint(0, WIDTH - 60))
-        balloon_y.append(randint(HEIGHT // 2, HEIGHT))
-        balloon_r.append(randint(20, 50))
-        balloon_speed.append(randint(1, 5))
-        balloon_shapes.append(randint(0, len(balloon_images) - 1))
-
-    # Adding a black balloon (bomb)
-    balloons.append(randint(0, WIDTH - 60))
-    balloons_visible.append(True)
-    balloon_x.append(randint(0, WIDTH - 60))
-    balloon_y.append(randint(HEIGHT // 2, HEIGHT))
-    balloon_r.append(30)
-    balloon_speed.append(randint(1, 5))
-    balloon_shapes.append(-1)
-
-
-# ---------------------------------------#
-#   Main
-# ---------------------------------------#
-
-
-exit_flag = False
-game_on = True
-play_again = False
-score = 0
-missed_balloons = 0
-balloons = []
-balloons_visible = []
-balloon_x = []
-balloon_y = []
-balloon_r = []
-balloon_speed = []
-balloon_shapes = []
-gen_balloons()
-start_time = time.time()
-
-# Main game loop
-while game_on:
-    if not exit_flag:
+    def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                exit_flag = True
-                game_on = False
-
+                self.running = False
             if event.type == pygame.MOUSEBUTTONDOWN:
-                (cursorX, cursorY) = pygame.mouse.get_pos()
+                mouseX, mouseY = pygame.mouse.get_pos()
+                if not self.game.pop_all(mouseX, mouseY):
+                    self.game_over = True
+                    self.final_time = int(time.time() - self.start_time)
 
-                if not any(balloons_visible):  # If all balloons are popped or flown away
-                    if 200 < cursorX < 400 and 300 < cursorY < 400:
-                        play_again = True
-                    if 450 < cursorX < 650 and 300 < cursorY < 400:
-                        exit_flag = True
-                        game_on = False
+    def update(self):
+        self.game.move_all()
+        if all(not balloon.visible for balloon in self.game.balloons):
+            self.game_over = True
+            self.final_time = int(time.time() - self.start_time)
 
-                for i in range(len(balloons)):
-                    if balloons_visible[i] and distance(cursorX, cursorY, balloon_x[i], balloon_y[i]) < balloon_r[i]:
-                        if balloon_shapes[i] == -1:
-                            game_over()
-                            exit_flag = True
-                        else:
-                            balloons_visible[i] = False
-                            score += 1
+    def render(self):
+        screen.blit(background, (0, 0))
+        self.game.draw_all()
+        pygame.display.update()
 
-        for i in range(len(balloons)):
-            if balloons_visible[i]:
-                balloon_y[i] -= balloon_speed[i]
-                if balloon_y[i] < -balloon_r[i]:  # Ensure balloons stay on screen
-                    balloons_visible[i] = False
-                    missed_balloons += 1
+    def game_over_screen(self):
+        screen.blit(end_background, (0, 0))
+        end_text = end_font.render('GAME OVER', True, BLACK)
+        screen.blit(end_text, (225, 170))
+        scoreText = font.render('Score: ' + str(self.game.score), True, BLACK)
+        screen.blit(scoreText, (330, 250))
+        time_text = font.render('Time: ' + str(self.final_time) + 's', True, BLACK)
+        screen.blit(time_text, (320, 465))
+        missed_text = font.render('Missed: ' + str(self.game.missed), True, BLACK)
+        screen.blit(missed_text, (310, 410))
 
-        if not any(balloons_visible):
-            game_over()
-            exit_flag = True
+        # Draw play again button
+        pygame.draw.rect(screen, GREEN, (200, 300, 200, 100))
+        play_text = font.render('REPLAY', True, BLACK)
+        screen.blit(play_text, (230, 330))
 
-        if play_again:
-            balloons = []
-            balloons_visible = []
-            balloon_x = []
-            balloon_y = []
-            balloon_r = []
-            balloon_speed = []
-            balloon_shapes = []
-            score = 0
-            missed_balloons = 0
-            gen_balloons()
-            exit_flag = False
-            play_again = False
-            start_time = time.time()
+        # Draw quit button
+        pygame.draw.rect(screen, RED, (450, 300, 200, 100))
+        quit_text = font.render('QUIT', True, BLACK)
+        screen.blit(quit_text, (500, 330))
 
-        redraw()
-        clock.tick(30)
+        pygame.display.update()
 
-    elif exit_flag:
-        game_over()
+    def handle_game_over_events(self):  # Corrected method name
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                game_on = False
-
+                self.running = False
             if event.type == pygame.MOUSEBUTTONDOWN:
-                (cursorX, cursorY) = pygame.mouse.get_pos()
-                if 200 < cursorX < 400 and 300 < cursorY < 400:
-                    play_again = True
-                    exit_flag = False
-                elif 450 < cursorX < 650 and 300 < cursorY < 400:
-                    game_on = False
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                if 200 < mouse_x < 400 and 300 < mouse_y < 400:  # REPLAY button
+                    self.game = Game()
+                    self.start_time = time.time()
+                    self.game_over = False
+                elif 450 < mouse_x < 650 and 300 < mouse_y < 400:  # QUIT button
+                    self.running = False
 
-pygame.quit()
-pygame.display.quit()
+    def run(self):
+        while self.running:
+            if not self.game_over:
+                self.handle_events()
+                self.update()
+                self.render()
+                clock.tick(30)
+            else:
+                self.game_over_screen()
+                self.handle_game_over_events()
+
+        pygame.quit()
+
+
+if __name__ == '__main__':
+    game_loop = GameLoop()
+    game_loop.run()
