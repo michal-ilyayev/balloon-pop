@@ -10,6 +10,7 @@ pygame.init()
 HEIGHT = 600
 WIDTH = 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption('Balloon Pop')
 clock = pygame.time.Clock()
 font = pygame.font.SysFont('Arial Black', 36)  # Smaller font size for gameplay
 end_font = pygame.font.SysFont('Arial Black', 60)  # Smaller font size for game over screen
